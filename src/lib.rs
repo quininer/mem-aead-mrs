@@ -1,10 +1,12 @@
 #[macro_use] extern crate arrayref;
+extern crate subtle;
 extern crate byteorder;
 
 mod common;
 
 use std::marker::PhantomData;
 use std::mem;
+use subtle::ConstantTimeEq;
 use common::tags;
 
 
@@ -15,7 +17,7 @@ pub(crate) const T: usize = W * 4;
 pub(crate) const LENGTH: usize = 16;
 pub const KEY_LENGTH: usize = mem::size_of::<U>() * 4;
 pub const NONCE_LENGTH: usize = mem::size_of::<U>() * 2;
-pub const TAG_LENGTH: usize = NONCE_LENGTH;
+pub const TAG_LENGTH: usize = KEY_LENGTH;
 pub const STATE_LENGTH: usize = mem::size_of::<U>() * LENGTH;
 pub const BLOCK_LENGTH: usize = STATE_LENGTH - mem::size_of::<U>() * 4;
 
@@ -62,6 +64,6 @@ impl<P: Permutation> Mrs<P> {
         self.finalise(aad.len(), c.len(), &mut tag2);
 
         // verification phase
-        unimplemented!()
+        tag.ct_eq(&tag2).unwrap_u8() == 1
     }
 }
