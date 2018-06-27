@@ -1,0 +1,9 @@
+[package]
+name = "mem-aead-mrs"
+version = "0.1.0"
+authors = ["quininer <quininer@live.com>"]
+
+[dependencies]
+arrayref = "0.3"
+subtle = { version = "0.6", default-features = false }
+byteorder = { version = "1.0", default-features = false }
