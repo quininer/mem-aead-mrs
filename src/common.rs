@@ -1,4 +1,6 @@
-use std::mem;
+#![cfg_attr(feature = "cargo-clippy", allow(needless_range_loop))]
+
+use core::mem;
 use byteorder::{ ByteOrder, LittleEndian };
 use ::{
     U, L, T, LENGTH,
@@ -36,13 +38,13 @@ pub mod tags {
 }
 
 #[inline]
-pub fn with<F>(arr: &mut [u8; STATE_LENGTH], f: F)
-    where F: FnOnce(&mut [U; LENGTH])
+pub fn with<F>(arr: &mut [U; LENGTH], f: F)
+    where F: FnOnce(&mut [u8; STATE_LENGTH])
 {
     #[inline]
-    fn transmute(arr: &mut [u8; STATE_LENGTH]) -> &mut [U; LENGTH] {
-        unsafe { mem::transmute(arr) }
-//        unsafe { &mut *(arr as *mut [u8; STATE_LENGTH] as *mut [U; LENGTH]) }
+    fn transmute(arr: &mut [U; LENGTH]) -> &mut [u8; STATE_LENGTH] {
+//        unsafe { mem::transmute(arr) }
+        unsafe { &mut *(arr as *mut [U; LENGTH] as *mut [u8; STATE_LENGTH]) }
     }
 
     #[inline]
@@ -50,34 +52,37 @@ pub fn with<F>(arr: &mut [u8; STATE_LENGTH], f: F)
         LittleEndian::from_slice_u64(arr);
     }
 
-    let arr = transmute(arr);
     le_from_slice(arr);
-    f(arr);
+    f(transmute(arr));
     le_from_slice(arr);
 }
 
 impl<P: Permutation> Mrs<P> {
     pub(crate) fn init<T: Tag>(&mut self, key: &[u8; KEY_LENGTH], nonce: &[u8]) {
-        self.state.copy_from_slice(&[0; STATE_LENGTH]);
-        self.state[..nonce.len()].copy_from_slice(nonce);
-
         with(&mut self.state, |state| {
-            state[9] = L as U;
-            state[10] = T as U;
-            state[11] = T::TAG;
+            state.copy_from_slice(&[0; STATE_LENGTH]);
+            state[..nonce.len()].copy_from_slice(nonce);
         });
 
-        self.state[12 * mem::size_of::<U>()..].copy_from_slice(key);
+        self.state[9] = L as U;
+        self.state[10] = T as U;
+        self.state[11] = T::TAG;
+
+        with(&mut self.state, |state| {
+            state[12 * mem::size_of::<U>()..].copy_from_slice(key);
+        });
     }
 
     pub(crate) fn absorb(&mut self, aad: &[u8]) {
         #[inline]
-        fn absorb_block<P: Permutation>(state: &mut [u8; STATE_LENGTH], chunk: &[u8; STATE_LENGTH]) {
-            with(state, P::permutation);
+        fn absorb_block<P: Permutation>(state: &mut [U; LENGTH], chunk: &[u8; STATE_LENGTH]) {
+            P::permutation(state);
 
-            for i in 0..STATE_LENGTH {
-                state[i] ^= chunk[i];
-            }
+            with(state, |state| {
+                for i in 0..STATE_LENGTH {
+                    state[i] ^= chunk[i];
+                }
+            });
         }
 
         let (aad, remaining) = aad.split_at(aad.len() - aad.len() % STATE_LENGTH);
@@ -88,36 +93,40 @@ impl<P: Permutation> Mrs<P> {
         }
 
         if !remaining.is_empty() {
-            with(&mut self.state, P::permutation);
+            P::permutation(&mut self.state);
 
-            for i in 0..remaining.len() {
-                self.state[i] ^= remaining[i];
-            }
+            with(&mut self.state, |state| {
+                for i in 0..remaining.len() {
+                    state[i] ^= remaining[i];
+                }
+            });
         }
     }
 
     pub(crate) fn finalise(&mut self, hlen: usize, mlen: usize, tag: &mut [u8; TAG_LENGTH]) {
+        P::permutation(&mut self.state);
+
+        self.state[0] ^= hlen as U;
+        self.state[1] ^= mlen as U;
+
+        P::permutation(&mut self.state);
+
         with(&mut self.state, |state| {
-            P::permutation(state);
-
-            state[0] ^= hlen as U;
-            state[1] ^= mlen as U;
-
-            P::permutation(state);
+            tag.copy_from_slice(&state[..TAG_LENGTH]);
         });
-
-        tag.copy_from_slice(&self.state[..TAG_LENGTH]);
     }
 
     pub(crate) fn encrypt_data(&mut self, m: &mut [u8]) {
         #[inline]
-        fn encrypt_block<P: Permutation>(state: &mut [u8; STATE_LENGTH], chunk: &mut [u8; BLOCK_LENGTH]) {
-            with(state, P::permutation);
+        fn encrypt_block<P: Permutation>(state: &mut [U; LENGTH], chunk: &mut [u8; BLOCK_LENGTH]) {
+            P::permutation(state);
 
-            for i in 0..BLOCK_LENGTH {
-                state[i] ^= chunk[i];
-                chunk[i] = state[i];
-            }
+            with(state, |state| {
+                for i in 0..BLOCK_LENGTH {
+                    state[i] ^= chunk[i];
+                    chunk[i] = state[i];
+                }
+            });
         }
 
         let mlen = m.len();
@@ -129,25 +138,28 @@ impl<P: Permutation> Mrs<P> {
         }
 
         if !remaining.is_empty() {
-            with(&mut self.state, P::permutation);
+            P::permutation(&mut self.state);
 
-            for i in 0..remaining.len() {
-                remaining[i] ^= self.state[i];
-            }
+            with(&mut self.state, |state| {
+                for i in 0..remaining.len() {
+                    remaining[i] ^= state[i];
+                }
+            });
         }
     }
 
     pub(crate) fn decrypt_data(&mut self, c: &mut [u8]) {
         #[inline]
-        fn decrypt_block<P: Permutation>(state: &mut [u8; STATE_LENGTH], chunk: &mut [u8; BLOCK_LENGTH]) {
-            with(state, P::permutation);
+        fn decrypt_block<P: Permutation>(state: &mut [U; LENGTH], chunk: &mut [u8; BLOCK_LENGTH]) {
+            P::permutation(state);
 
-            for i in 0..BLOCK_LENGTH {
-                let s = mem::replace(&mut state[i], chunk[i]);
-                chunk[i] ^= s;
-            }
+            with(state, |state| {
+                for i in 0..BLOCK_LENGTH {
+                    let s = mem::replace(&mut state[i], chunk[i]);
+                    chunk[i] ^= s;
+                }
+            });
         }
-
 
         let clen = c.len();
         let (c, remaining) = c.split_at_mut(clen - clen % BLOCK_LENGTH);
@@ -158,11 +170,13 @@ impl<P: Permutation> Mrs<P> {
         }
 
         if !remaining.is_empty() {
-            with(&mut self.state, P::permutation);
+            P::permutation(&mut self.state);
 
-            for i in 0..remaining.len() {
-                remaining[i] ^= self.state[i];
-            }
+            with(&mut self.state, |state| {
+                for i in 0..remaining.len() {
+                    remaining[i] ^= state[i];
+                }
+            });
         }
     }
 }

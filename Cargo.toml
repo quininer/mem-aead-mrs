@@ -2,6 +2,11 @@
 name = "mem-aead-mrs"
 version = "0.1.0"
 authors = ["quininer <quininer@live.com>"]
+description = "Misuse-Resistant Sponge Authenticated Encryption Mode"
+repository = "https://github.com/quininer/mem-aead-mrs"
+keywords = [ "cryptography", "aead" ]
+categories = [ "cryptography", "no-std" ]
+license = "MIT"
 
 [dependencies]
 arrayref = "0.3"

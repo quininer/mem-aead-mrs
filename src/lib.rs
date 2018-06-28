@@ -1,11 +1,13 @@
+#![no_std]
+
 #[macro_use] extern crate arrayref;
 extern crate subtle;
 extern crate byteorder;
 
 mod common;
 
-use std::marker::PhantomData;
-use std::mem;
+use core::marker::PhantomData;
+use core::mem;
 use subtle::ConstantTimeEq;
 use common::tags;
 
@@ -26,14 +28,20 @@ pub trait Permutation {
 }
 
 pub struct Mrs<P: Permutation> {
-    state: [u8; STATE_LENGTH],
+    state: [U; LENGTH],
     _phantom: PhantomData<P>
+}
+
+impl<P: Permutation> Default for Mrs<P> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<P: Permutation> Mrs<P> {
     pub fn new() -> Mrs<P> {
         Mrs {
-            state: [0; STATE_LENGTH],
+            state: [0; LENGTH],
             _phantom: PhantomData
         }
     }
@@ -48,6 +56,8 @@ impl<P: Permutation> Mrs<P> {
         // encryption phase
         self.init::<tags::Enc>(key, tag);
         self.encrypt_data(m);
+
+        // TODO zero state
     }
 
     pub fn decrypt(mut self, key: &[u8; KEY_LENGTH], nonce: &[u8; NONCE_LENGTH], aad: &[u8], c: &mut [u8], tag: &[u8; TAG_LENGTH]) -> bool {
@@ -62,6 +72,8 @@ impl<P: Permutation> Mrs<P> {
         self.absorb(aad);
         self.absorb(c);
         self.finalise(aad.len(), c.len(), &mut tag2);
+
+        // TODO zero state
 
         // verification phase
         tag.ct_eq(&tag2).unwrap_u8() == 1
